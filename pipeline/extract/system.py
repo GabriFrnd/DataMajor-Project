@@ -40,3 +40,8 @@ def get_dataset_path() -> str:
 
     # Retorno do caminho do arquivo .csv, agora em 'data/raw'
     return os.path.join(raw_path, os.listdir(raw_path)[0])
+
+# Chamada da função
+# Necessário executar para funcionamento do projeto
+if __name__ == '__main__':
+    get_dataset_path()
