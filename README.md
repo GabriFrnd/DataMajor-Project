@@ -84,7 +84,7 @@ pip install -r requirements.txt
 ### 4. Execute o script de Extract
 
 ```bash
-python pipeline/extract/main.py
+python pipeline/extract/system.py
 ```
 
 > O script realizará automaticamente o download do dataset e o organizará em `data/raw/`.
