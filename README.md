@@ -36,6 +36,11 @@ O projeto tem como objetivo consolidar, de forma prática e técnica, os conteú
 ├── data/
 │   ├── raw/          # Dados brutos, gerados pelo script de Extract
 │   └── processed/    # Dados tratados, gerados pelo Transform
+├── notebooks/
+│   ├── extract/      # Notebooks da etapa de Extract
+│   ├── transform/    # Notebooks da etapa de Transform
+│   ├── load/         # Notebooks da etapa de Load
+│   └── mining/       # Notebooks da etapa de Mineração
 ├── pipeline/
 │   ├── extract/      # Scripts de coleta e download do dataset
 │   ├── transform/    # Scripts de limpeza e padronização
@@ -89,6 +94,48 @@ python pipeline/extract/system.py
 
 > O script realizará automaticamente o download do dataset e o organizará em `data/raw/`.
 
+### 5. Carregando o DataFrame
+
+Para carregar o DataFrame do projeto, importe e chame a função `load_dataframe()` do arquivo `pipeline/extract/main.py`:
+
+```python
+from main import load_dataframe
+
+df = load_dataframe()
+```
+
+> A função `load_dataframe()` é autossuficiente — ela realiza o download do dataset, detecta o encoding e o delimitador automaticamente, e retorna o DataFrame pronto para uso.
+
+---
+
+## 📓 Jupyter Notebook
+
+### Instalação da extensão
+
+Para utilizar os notebooks do projeto no VS Code, instale a extensão **Jupyter** disponível na aba de extensões (`Ctrl+Shift+X`).
+
+Além disso, instale o `ipykernel` no ambiente virtual:
+
+```bash
+pip install ipykernel
+```
+
+### Seleção do interpretador
+
+Ao abrir um notebook `.ipynb`, selecione o interpretador correto no canto superior direito do VS Code. Escolha o Python do ambiente virtual `venv` do projeto.
+
+> ⚠️ Utilizar um interpretador diferente do ambiente virtual fará com que as bibliotecas do projeto não sejam encontradas.
+
+### Atualização do requirements.txt
+
+Sempre que instalar uma nova biblioteca, atualize o `requirements.txt` com o comando:
+
+```bash
+pip freeze > requirements.txt
+```
+
+> Lembre-se de commitar o `requirements.txt` atualizado para que os outros integrantes possam instalar as novas dependências.
+
 ---
 
 ## 📋 Padrão de Commits
@@ -114,27 +161,4 @@ Este projeto segue a convenção [Conventional Commits](https://www.conventional
 feat(extract): add automated download script for kaggle dataset
 docs(readme): add project structure and contribution guidelines
 chore: add .gitignore for python and venv
-```
-
----
-
-## 🌿 Padrão de Branches
-
-```
-<tipo>/<descrição>
-```
-
-**Tipos utilizados:**
-
-- `feature/` — desenvolvimento de uma etapa do pipeline
-- `fix/` — correção de problemas
-- `docs/` — alterações em documentação
-
-**Exemplos:**
-
-```
-feature/extract
-feature/transform
-feature/load
-feature/mining
 ```
