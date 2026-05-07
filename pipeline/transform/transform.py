@@ -1,69 +1,36 @@
+import os    # Interação com o sistema operacional
+import sys   # Manipulação do caminho de busca de módulos
+import re    # Expressões regulares para limpeza de texto
 import pandas as pd  # Manipulação e análise de dados
-import os             # Interação com o sistema operacional
-import re             # Expressões regulares para limpeza de texto
 
 
 def get_paths() -> tuple[str, str]:
     """
-    Resolve os caminhos de entrada (data/raw) e saída (data/processed)
-    com base na localização deste script, independente de onde o projeto
-    estiver clonado.
+    Resolve os caminhos de importação do Extract e de saída (data/processed)
+    com base na localização deste script.
 
     Returns:
-        tuple[str, str]: (caminho do arquivo CSV em raw, caminho da pasta processed)
+        tuple[str, str]: (caminho de pipeline/extract, caminho de data/processed)
     """
-    # Caminho até o arquivo atual (transform.py)
+    # Caminho (path) até o arquivo atual (transform.py)
     main_file_path = os.path.abspath(__file__)
 
-    # Retorno até a raiz do projeto (pipeline/transform/ → raiz)
+    # Retorno do caminho (path) até a raiz do projeto
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(main_file_path)))
 
-    raw_path = os.path.join(project_root, 'data', 'raw')
+    # Caminho (path) até a pasta 'extract' (pipeline/extract)
+    extract_path = os.path.join(project_root, 'pipeline', 'extract')
+
+    # Caminho (path) até a pasta 'processed' (data/processed)
     processed_path = os.path.join(project_root, 'data', 'processed')
+
+    # Adição do caminho 'pipeline/extract' ao sys.path, permitindo a importação dos módulos
+    sys.path.append(extract_path)
 
     # Criação do diretório 'data/processed', caso não exista
     os.makedirs(processed_path, exist_ok=True)
 
-    # Localiza o arquivo .csv dentro de 'data/raw'
-    raw_files = os.listdir(raw_path)
-    if not raw_files:
-        raise FileNotFoundError(
-            "Nenhum arquivo encontrado em 'data/raw'. "
-            "Execute o script de Extract primeiro: python pipeline/extract/system.py"
-        )
-
-    csv_file = os.path.join(raw_path, raw_files[0])
-    return csv_file, processed_path
-
-
-def load_raw(csv_path: str) -> pd.DataFrame:
-    """
-    Carrega o arquivo CSV bruto para um DataFrame.
-
-    Args:
-        csv_path (str): Caminho completo do arquivo CSV.
-
-    Returns:
-        pd.DataFrame: Dados brutos carregados.
-    """
-    print(f"[1/6] Carregando dados brutos de: {csv_path}")
-
-    df = pd.read_csv(
-        csv_path,
-        dtype={
-            'reviewId':            str,
-            'userName':            str,
-            'content':             str,
-            'score':               'Int64',   # Int64 (nullable) para lidar com NaN
-            'thumbsUpCount':       'Int64',
-            'reviewCreatedVersion': str,
-            'at':                  str,
-            'appVersion':          str,
-        }
-    )
-
-    print(f"    → {len(df):,} linhas | {df.shape[1]} colunas carregadas")
-    return df
+    return extract_path, processed_path
 
 
 def remove_duplicates(df: pd.DataFrame) -> pd.DataFrame:
@@ -77,18 +44,14 @@ def remove_duplicates(df: pd.DataFrame) -> pd.DataFrame:
     Returns:
         pd.DataFrame: DataFrame sem duplicatas de reviewId.
     """
-    print("[2/6] Removendo duplicatas...")
-
     before = len(df)
 
-    # Ordenar por 'at' antes de desduplicar garante que a review mais recente
-    # seja mantida em caso de re-envio pelo usuário
+    # Ordenação por data garante que a review mais recente seja mantida
     df = df.sort_values('at', ascending=False)
     df = df.drop_duplicates(subset='reviewId', keep='first')
     df = df.reset_index(drop=True)
 
-    removed = before - len(df)
-    print(f"    → {removed:,} duplicata(s) removida(s) | {len(df):,} linhas restantes")
+    print(f'[1/5] Duplicatas removidas: {before - len(df):,} | Linhas restantes: {len(df):,}')
     return df
 
 
@@ -104,21 +67,16 @@ def handle_nulls(df: pd.DataFrame) -> pd.DataFrame:
     Returns:
         pd.DataFrame: DataFrame com nulos tratados.
     """
-    print("[3/6] Tratando valores nulos...")
-
-    # Descarta reviews sem texto (inúteis para mineração)
+    # Descarte de reviews sem texto
     before = len(df)
     df = df.dropna(subset=['content'])
-    dropped = before - len(df)
-    if dropped:
-        print(f"    → {dropped} linha(s) sem 'content' descartada(s)")
+    print(f'[2/5] Reviews sem texto descartadas: {before - len(df)}')
 
-    # Versões ausentes → valor sentinela legível
+    # Preenchimento de versões ausentes com valor sentinela legível
     for col in ['reviewCreatedVersion', 'appVersion']:
         nulls = df[col].isna().sum()
-        if nulls:
-            df[col] = df[col].fillna('desconhecida')
-            print(f"    → {nulls:,} nulo(s) em '{col}' preenchidos com 'desconhecida'")
+        df[col] = df[col].fillna('desconhecida')
+        print(f'     Nulos em \'{col}\' preenchidos: {nulls:,}')
 
     return df.reset_index(drop=True)
 
@@ -126,9 +84,9 @@ def handle_nulls(df: pd.DataFrame) -> pd.DataFrame:
 def normalize_types(df: pd.DataFrame) -> pd.DataFrame:
     """
     Padroniza os tipos de dados das colunas:
-      - 'at' → datetime (UTC)
-      - 'score' e 'thumbsUpCount' → int (agora que não há mais nulos)
-      - Colunas de versão → string limpa (remove sufixo '.0' de floats lidos como str)
+      - 'at' → datetime com fuso UTC (correto para análise temporal)
+      - 'score' e 'thumbsUpCount' → int64
+      - Colunas de versão → string limpa
 
     Args:
         df (pd.DataFrame): DataFrame com tipos brutos.
@@ -136,34 +94,33 @@ def normalize_types(df: pd.DataFrame) -> pd.DataFrame:
     Returns:
         pd.DataFrame: DataFrame com tipos padronizados.
     """
-    print("[4/6] Normalizando tipos de dados...")
-
-    # Converte 'at' para datetime; erros viram NaT (descartados a seguir)
+    # Conversão da coluna 'at' para datetime com fuso UTC
     df['at'] = pd.to_datetime(df['at'], errors='coerce', utc=True)
-    nat_count = df['at'].isna().sum()
-    if nat_count:
-        df = df.dropna(subset=['at'])
-        print(f"    → {nat_count} data(s) inválida(s) em 'at' descartada(s)")
 
-    # Colunas numéricas: converte de Int64 (nullable) para int64 padrão
+    # Descarte de datas inválidas (NaT)
+    nat = df['at'].isna().sum()
+    if nat:
+        df = df.dropna(subset=['at'])
+        print(f'[3/5] Datas inválidas descartadas: {nat}')
+    else:
+        print('[3/5] Tipos normalizados com sucesso')
+
+    # Conversão de colunas numéricas
     df['score']         = df['score'].astype(int)
     df['thumbsUpCount'] = df['thumbsUpCount'].astype(int)
 
-    # Remove sufixo '.0' de versões que foram lidas como float pelo CSV
-    # Ex.: "545.0.0.43.63" já está ok; "545.0" → vem de linhas com float puro
+    # Limpeza de espaços nas colunas de versão
     for col in ['reviewCreatedVersion', 'appVersion']:
         df[col] = df[col].str.strip()
 
-    print(f"    → Tipos ajustados com sucesso")
-    return df
+    return df.reset_index(drop=True)
 
 
 def clean_text(df: pd.DataFrame) -> pd.DataFrame:
     """
     Limpa e padroniza a coluna 'content' (texto da avaliação):
-      - Remove espaços em branco no início e fim
+      - Remove caracteres de controle
       - Colapsa múltiplos espaços/quebras de linha em um único espaço
-      - Remove caracteres de controle (exceto espaço normal)
 
     Também limpa 'userName' (espaços e caracteres invisíveis).
 
@@ -173,25 +130,18 @@ def clean_text(df: pd.DataFrame) -> pd.DataFrame:
     Returns:
         pd.DataFrame: DataFrame com texto limpo.
     """
-    print("[5/6] Limpando e padronizando texto...")
-
-    # Remove caracteres de controle e normaliza espaços
-    def clean(text: str) -> str:
-        text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', text)  # Ctrl chars
+    def _clean(text: str) -> str:
+        text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', text)  # Caracteres de controle
         text = re.sub(r'[ \t\r\n]+', ' ', text)                         # Espaços múltiplos
         return text.strip()
 
-    df['content']  = df['content'].apply(clean)
+    df['content']  = df['content'].apply(_clean)
     df['userName'] = df['userName'].str.strip()
 
-    # Descarta reviews que ficaram vazias após a limpeza
+    # Descarte de reviews que ficaram vazias após a limpeza
     before = len(df)
     df = df[df['content'].str.len() > 0].reset_index(drop=True)
-    dropped = before - len(df)
-    if dropped:
-        print(f"    → {dropped} review(s) vazia(s) após limpeza descartada(s)")
-
-    print(f"    → Limpeza de texto concluída")
+    print(f'[4/5] Limpeza de texto concluída | Reviews vazias descartadas: {before - len(df)}')
     return df
 
 
@@ -211,76 +161,67 @@ def enrich(df: pd.DataFrame) -> pd.DataFrame:
     Returns:
         pd.DataFrame: DataFrame enriquecido com colunas derivadas.
     """
-    print("[6/6] Enriquecendo com colunas derivadas...")
-
+    # Métricas de texto
     df['review_length'] = df['content'].str.len()
     df['word_count']    = df['content'].str.split().str.len()
 
-    # Mapeamento de score → sentimento
+    # Classificação de sentimento baseada no score
     sentiment_map = {1: 'negativo', 2: 'negativo', 3: 'neutro', 4: 'positivo', 5: 'positivo'}
     df['sentiment'] = df['score'].map(sentiment_map)
 
+    # Colunas temporais
     df['review_year']  = df['at'].dt.year
     df['review_month'] = df['at'].dt.month
 
-    print(f"    → Colunas adicionadas: review_length, word_count, sentiment, review_year, review_month")
+    print('[5/5] Colunas derivadas adicionadas: review_length, word_count, sentiment, review_year, review_month')
     return df
 
 
-def save_processed(df: pd.DataFrame, processed_path: str) -> str:
-    """
-    Salva o DataFrame transformado em formato CSV comprimido (gzip)
-    no diretório 'data/processed'.
-
-    O uso de gzip reduz o tamanho do arquivo em ~70% sem perda de dados,
-    e o pandas consegue ler arquivos .csv.gz diretamente.
-
-    Args:
-        df (pd.DataFrame): DataFrame final transformado.
-        processed_path (str): Caminho da pasta 'data/processed'.
-
-    Returns:
-        str: Caminho completo do arquivo gerado.
-    """
-    output_file = os.path.join(processed_path, 'facebook_reviews_clean.csv.gz')
-    df.to_csv(output_file, index=False, compression='gzip')
-    size_mb = os.path.getsize(output_file) / (1024 * 1024)
-    print(f"\n✅ Arquivo salvo em: {output_file}")
-    print(f"   Tamanho: {size_mb:.1f} MB | {len(df):,} linhas | {df.shape[1]} colunas")
-    return output_file
-
-
-def transform() -> str:
+def transform() -> pd.DataFrame:
     """
     Executa o pipeline completo de transformação:
-        load → remove_duplicates → handle_nulls →
-        normalize_types → clean_text → enrich → save
+        load_dataframe → remove_duplicates → handle_nulls →
+        normalize_types → clean_text → enrich → salva em data/processed/
 
     Returns:
-        str: Caminho do arquivo processado gerado em 'data/processed'.
+        pd.DataFrame: DataFrame processado.
     """
-    print("=" * 55)
-    print("  DATA MAJOR — Pipeline Transform")
-    print("=" * 55)
+    print('=' * 50)
+    print('  DATA MAJOR — Pipeline Transform')
+    print('=' * 50)
 
-    csv_path, processed_path = get_paths()
+    _, processed_path = get_paths()
 
-    df = load_raw(csv_path)
+    # Importação da função 'load_dataframe', declarada no arquivo 'main.py' (Extract)
+    from main import load_dataframe  # type: ignore
+
+    # Carregamento do DataFrame bruto via Extract
+    df = load_dataframe()
+    print(f'Dataset carregado: {len(df):,} linhas | {df.shape[1]} colunas\n')
+
     df = remove_duplicates(df)
     df = handle_nulls(df)
     df = normalize_types(df)
     df = clean_text(df)
     df = enrich(df)
 
-    output_path = save_processed(df, processed_path)
+    # Caminho do arquivo de saída
+    output_file = os.path.join(processed_path, 'facebook_reviews_clean.csv.gz')
 
-    print("\nResumo do dataset processado:")
-    print(df[['score', 'sentiment', 'review_length', 'word_count']].describe(include='all').to_string())
-    print("=" * 55)
+    # Salvamento do DataFrame processado em formato CSV comprimido
+    # O uso de gzip reduz o tamanho do arquivo em ~70% sem perda de dados
+    df.to_csv(output_file, index=False, compression='gzip')
 
-    return output_path
+    size_mb = os.path.getsize(output_file) / (1024 * 1024)
+    print(f'\nArquivo salvo em: {output_file}')
+    print(f'Tamanho: {size_mb:.1f} MB | {len(df):,} linhas | {df.shape[1]} colunas')
+    print('=' * 50)
+
+    # Retorno do DataFrame processado
+    return df
 
 
-# Execução direta do script
+# Chamada da função
+# Necessário executar para funcionamento do projeto
 if __name__ == '__main__':
     transform()
