@@ -106,11 +106,34 @@ df = load_dataframe()
 
 > A função `load_dataframe()` é autossuficiente — ela realiza o download do dataset, detecta o encoding e o delimitador automaticamente, e retorna o DataFrame pronto para uso.
 
+### 6. Executando a etapa de Load com MongoDB
+
+Depois de rodar o Transform, execute a carga para o MongoDB:
+
+```bash
+python pipeline/load/main.py
+```
+
+Por padrão, o script usa `mongodb://localhost:27017`. Se necessário, defina a variável de ambiente `MONGODB_URI` antes de executar.
+
+> A collection padrão é `data_major.facebook_reviews`, com índices em `reviewId`, `at` e `sentiment` para suportar consultas e análise posterior.
+
+**Notebook — Load Validation**
+
+O notebook `notebooks/load/explorer.ipynb` contém as células de verificação automatizadas para a etapa de Load:
+
+- Objetivo: validar a carga no MongoDB, conferir contagem de documentos, mostrar amostras e executar consultas de exemplo.
+- Consulta de exemplo: busca por `sentiment = 'positivo'` e exibição de 5 registros.
+
+Justificativa Arquitetural (migrada do notebook):
+
+> A etapa de Load usa MongoDB porque o dataset é textual, a estrutura pode evoluir e a consulta analítica se beneficia de documentos flexíveis. Os índices em `reviewId`, `at` e `sentiment` aceleram buscas por identificação, análise temporal e filtros por polaridade.
+
 ---
 
 ## 📓 Jupyter Notebook
 
-### Instalação da extensão
+### Instalação da extensão 
 
 Para utilizar os notebooks do projeto no VS Code, instale a extensão **Jupyter** disponível na aba de extensões (`Ctrl+Shift+X`).
 
