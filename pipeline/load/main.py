@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pandas as pd
 from pymongo.errors import ServerSelectionTimeoutError
-from pymongo import ASCENDING, DESCENDING, MongoClient
+from pymongo import ASCENDING, DESCENDING, MongoClient, ReplaceOne
 
 
 def get_paths() -> tuple[Path, Path]:
@@ -116,9 +116,15 @@ def load_to_mongodb(
     inserted_count = 0
     for start_index in range(0, len(documents), batch_size):
         batch = documents[start_index:start_index + batch_size]
-        if batch:
-            result = collection.insert_many(batch)
-            inserted_count += len(result.inserted_ids)
+        if not batch:
+            continue
+
+        operations = [
+            ReplaceOne({'reviewId': document['reviewId']}, document, upsert=True)
+            for document in batch
+        ]
+        result = collection.bulk_write(operations, ordered=False)
+        inserted_count += result.upserted_count + result.modified_count
 
     collection.create_index([('reviewId', ASCENDING)], unique=True)
     collection.create_index([('at', DESCENDING)])
